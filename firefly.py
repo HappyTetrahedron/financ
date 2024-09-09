@@ -9,12 +9,12 @@ class Firefly:
         self.client = ff.ApiClient(self.conf)
     
     def createTag(self, tag, date):
-        tag = ff.TagModelStore(
+        fftag = ff.TagModelStore(
             tag=tag,
             date=date,
         )
 
-        ff.TagsApi.store_tag(tag)
+        ff.TagsApi(self.client).store_tag(fftag)
     
     def sendTx(self, txSplit):
         tx = ff.TransactionStore(
@@ -68,13 +68,21 @@ class Firefly:
     def getAssetAccountByIban(self, iban):
         return self.getAccountByIban(iban, ff.AccountTypeFilter.ASSET)
 
+    def getAssetAccountByName(self, name):
+        return self.getAccountByName(name, ff.AccountTypeFilter.ASSET)
+
     def getAccountByIban(self, iban, accType):
-        field = ff.AccountSearchFieldFilter.IBAN
+        return self.getAccount(iban, accType, ff.AccountSearchFieldFilter.IBAN)
+    
+    def getAccount(self, identifier, accType, searchField):
         resp = ff.SearchApi(self.client).search_accounts(
-            query=iban,
-            field=field,
+            query=identifier,
+            field=searchField,
             type=accType,
         )
         if len(resp.data) > 0:
             return resp.data[0]
         return None
+
+    def getAccountByName(self, name, accType):
+        return self.getAccount(name, accType, ff.AccountSearchFieldFilter.NAME)

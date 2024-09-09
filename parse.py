@@ -97,3 +97,14 @@ class ZkbCsvParser(BaseParser):
                 'tx': tx,
             }
 
+class VisecaCsvParser(BaseParser):
+    @staticmethod
+    def parse(inFile):
+        with open(inFile, newline='') as csvfile:
+            lines = [ l.strip('\n\r\ufeff') for l in  csvfile.readlines() ]
+            reader = csv.DictReader(lines, delimiter=',', quotechar='"')
+            tx = [i for i in reader]
+            return {
+                'tx': tx,
+            }
+

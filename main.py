@@ -19,7 +19,7 @@ class FFImporter:
         tx = transformer.transform(parsed['tx'])
 
         if not self.debug:
-            firefly.createTag(transformer.tag, datetime.datetime.now())
+            firefly.createTag(transformer.tag, datetime.date.today())
 
         for x in tx:
             if self.debug:
@@ -40,9 +40,11 @@ if __name__ == '__main__':
     op.add_option('-t', '--token', dest='token', type='string',
                       help="Firefly token")
     op.add_option('-b', '--bank', dest='bank', type='string',
-                      help="Bank. Supported: appkb, zkb", default="appkb")
+                      help="Bank. Supported: appkb, zkb, viseca", default="appkb")
     op.add_option('-i', '--iban', dest='iban', type='string',
                       help="IBAN of account associated with bank statement")
+    op.add_option('-a', '--account', dest='account', type='string',
+                      help="Name of account associated with bank statement")
     op.add_option('-d', '--debug', dest='debug', action='store_true',
                       help="Debug mode")
     (opts, args) = op.parse_args()
@@ -62,6 +64,12 @@ if __name__ == '__main__':
         if not opts.iban:
             sys.exit("Please provide IBAN")
         transformer.setOwnAccount(opts.iban)
+    if opts.bank == "viseca":
+        parser = parse.VisecaCsvParser()
+        transformer = transform.VisecaTransformer(firefly, opts.debug)
+        if not opts.account:
+            sys.exit("Please provide account name")
+        transformer.setOwnAccount(opts.account, iban=False)
     
     if not (transformer and parser):
         sys.exit("Invalid input")

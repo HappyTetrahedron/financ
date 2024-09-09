@@ -17,8 +17,11 @@ class BaseTransformer:
         
         return tx
     
-    def setOwnAccount(self, iban):
-        self.account = self.firefly.getAssetAccountByIban(iban)
+    def setOwnAccount(self, identifier, iban=True):
+        if iban:
+            self.account = self.firefly.getAssetAccountByIban(identifier)
+        else:
+            self.account = self.firefly.getAssetAccountByName(identifier)
     
     def unpackTransform(self, tx):
         return tx['firefly']
@@ -289,4 +292,66 @@ class ZkbTransformer(BaseTransformer):
 
         self._setOtherParty(tx['firefly'], recipient)
 
+        return tx
+
+class VisecaTransformer(BaseTransformer):
+
+    def __init__(self, firefly, debug=False):
+        super().__init__(firefly, debug)
+        self.transforms = [
+            self.baseTransform,
+            self.feeTransform,
+            self.depositTransform,
+            self.categoryTransform,
+            self.unpackTransform,
+            self.tagTransform,
+        ]
+    
+    def baseTransform(self, csv):
+        if self.debug:
+            import pprint
+            pprint.pprint(csv)
+
+        newData = {
+            'csv': csv,
+            'drop': False,
+            'dir': 'debit' if float(csv['Amount']) >= 0 else 'credit',
+        }
+
+        tx = ff.TransactionSplitStore(
+            amount=csv['Amount'] if newData['dir'] == 'debit' else csv['Amount'][1:],
+            description="Credit Card Payment - {}".format(csv['Merchant']),
+            date=datetime.datetime.fromisoformat(csv['Date']),
+            type=ff.TransactionTypeProperty.DEPOSIT if newData['dir'] == 'credit' else ff.TransactionTypeProperty.WITHDRAWAL,
+            external_id=csv['TransactionID'],
+            destination_id=None,
+            source_id=None,
+        )
+        if newData['dir'] == 'credit':
+            tx.destination_id = self.account.id
+            tx.source_name = csv['Merchant']
+        else:
+            tx.source_id = self.account.id
+            tx.destination_name = csv['Merchant']
+        newData['firefly'] = tx
+        return newData
+    
+    def feeTransform(self, tx):
+        if tx['csv']['PFMCategoryID'] != "cv_creditcardfees":
+            return tx
+        tx['firefly'].description = "Credit Card Fees"
+        self._setOtherParty(tx['firefly'], "Viseca Credit Card Fees")
+        return tx
+    
+    def depositTransform(self, tx):
+        if tx['dir'] == 'debit':
+            return tx
+        tx['firefly'].description = "Credit Card Pre-Payment"
+        self._setOtherParty(tx['firefly'], "Viseca Credit Card Deposits")
+        return tx
+    
+    def categoryTransform(self, tx):
+        if tx['csv']['PFMCategoryID'] == "cv_not_categorized":
+            return tx
+        self._addNotes(tx['firefly'], "Category: {}".format(tx['csv']['PFMCategoryName']))
         return tx
