@@ -8,6 +8,14 @@ class Firefly:
         self.conf.access_token = token
         self.client = ff.ApiClient(self.conf)
     
+    def createTag(self, tag, date):
+        tag = ff.TagModelStore(
+            tag=tag,
+            date=date,
+        )
+
+        ff.TagsApi.store_tag(tag)
+    
     def sendTx(self, txSplit):
         tx = ff.TransactionStore(
             apply_rules=True,

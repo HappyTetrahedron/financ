@@ -20,12 +20,27 @@ class BaseTransformer:
     def setOwnAccount(self, iban):
         self.account = self.firefly.getAssetAccountByIban(iban)
     
+    def unpackTransform(self, tx):
+        return tx['firefly']
+    
     def tagTransform(self, tx):
         if tx.tags:
             tx.tags.append(self.tag)
         else:
             tx.tags = [self.tag]
         return tx
+    
+    def _setOtherParty(self, fftx, party):
+        if fftx.type == ff.TransactionTypeProperty.WITHDRAWAL:
+            fftx.destination_name = party
+        else:
+            fftx.source_name = party
+    
+    def _addNotes(self, fftx, note):
+        if fftx.notes:
+            fftx.notes = "\n".join([fftx.notes, note])
+        else:
+            fftx.notes = note
 
 class AppkbTransformer(BaseTransformer):
 
@@ -117,19 +132,9 @@ class AppkbTransformer(BaseTransformer):
         recipient = g[1]
         card = g[2]
 
-        fftx = tx['firefly']
-        if fftx.type == ff.TransactionTypeProperty.WITHDRAWAL:
-            fftx.destination_name = recipient
-        else:
-            fftx.source_name = recipient
+        self._setOtherParty(tx['firefly'], recipient)
+        self._addNotes(tx['firefly'], "Purchase Date: {}\nCard No.: {}".format(datetime, card))
 
-        addNotes = "Purchase Date: {}\nCard No.: {}".format(datetime, card)
-        if fftx.notes:
-            fftx.notes = "\n".join([fftx.notes, addNotes])
-        else:
-            fftx.notes = addNotes
-
-        tx['firefly'] = fftx
         return tx
     
     def twintTransform(self, tx):
@@ -144,20 +149,144 @@ class AppkbTransformer(BaseTransformer):
         recipient = g[0]
         number = g[1]
 
-        fftx = tx['firefly']
-        if fftx.type == ff.TransactionTypeProperty.WITHDRAWAL:
-            fftx.destination_name = recipient
-        else:
-            fftx.source_name = recipient
+        self._setOtherParty(tx['firefly'], recipient)
+        self._addNotes(tx['firefly'], "Twint Account ID: {}".format(number))
 
-        addNotes = "Twint Account ID: {}".format(number)
-        if fftx.notes:
-            fftx.notes = "\n".join([fftx.notes, addNotes])
-        else:
-            fftx.notes = addNotes
+        return tx
 
-        tx['firefly'] = fftx
+class ZkbTransformer(BaseTransformer):
+
+    DEBIT_REGEX_DE = re.compile(r"\S+ ZKB Visa Debit Card Nr. (\S{2,6} \d{2,6}), (.+)")
+    DEBIT_REGEX_EN = re.compile(r"\S+ ZKB Visa Debit card no. (\S{2,6} \d{2,6}), (.+)")
+    TWINT_REGEX = re.compile(r"\S+ TWINT: (.+)")
+    LSV_REGEX_DE = re.compile(r"\S+ aus Lastschrift.*: (.+)")
+    LSV_REGEX_EN = re.compile(r"\S+ from LSV.*: (.+)")
+    ENGLISH = {
+        "Date": "Datum",
+        "Booking text": "Buchungstext",
+        "Debit CHF": "Belastung CHF",
+        "Credit CHF": "Gutschrift CHF",
+        "Value date": "Valuta",
+        "Balange CHF": "Saldo CHF",
+        "ZKB reference": "ZKB-Referenz",
+        "Payment purpose": "Zahlungszweck",
+    }
+    def __init__(self, firefly, debug=False):
+        super().__init__(firefly, debug)
+        self.transforms = [
+            self.keyTranslateTransform,
+            self.baseTransform,
+            self.feeTransform,
+            self.purposeTransform,
+            self.cardTransform,
+            self.twintTransform,
+            self.lsvTransform,
+            self.unpackTransform,
+            self.tagTransform,
+        ]
+    
+    def keyTranslateTransform(self, csv):
+        new = {}
+        for k, v in csv.items():
+            if k in self.ENGLISH:
+                new[self.ENGLISH[k]] = v
+            else:
+                new[k] = v
+        return new
+
+    def baseTransform(self, csv):
+        if self.debug:
+            import pprint
+            pprint.pprint(csv)
+
+        newData = {
+            'csv': csv,
+            'drop': False,
+            'dir': 'credit' if csv['Gutschrift CHF'] else 'debit',
+        }
+
+        tx = ff.TransactionSplitStore(
+            amount=csv['Gutschrift CHF'] if newData['dir'] == 'credit' else csv['Belastung CHF'],
+            description=csv['Buchungstext'],
+            date=datetime.datetime.strptime(csv['Datum'], "%d.%m.%Y"),
+            type=ff.TransactionTypeProperty.DEPOSIT if newData['dir'] == 'credit' else ff.TransactionTypeProperty.WITHDRAWAL,
+            external_id=csv['ZKB-Referenz'],
+            destination_id=None,
+            source_id=None,
+        )
+        if newData['dir'] == 'credit':
+            tx.destination_id = self.account.id
+            tx.source_name = csv['Details']
+        else:
+            tx.source_id = self.account.id
+            tx.destination_name = csv['Details']
+        newData['firefly'] = tx
+        return newData
+    
+    def feeTransform(self, tx):
+        if "Gebühr ZKB" not in tx['csv']['Buchungstext']:
+            return tx
+        self._setOtherParty(tx['firefly'], "ZKB Zürcher Kantonalbank")
         return tx
     
-    def unpackTransform(self, tx):
-        return tx['firefly']
+    def purposeTransform(self, tx):
+        if not tx['csv']['Zahlungszweck']:
+            return tx
+        self._addNotes(tx['firefly'], "Purpose: {}".format(tx['csv']['Zahlungszweck']))
+        return tx
+
+    def cardTransform(self, tx):
+        if "Visa Debit" not in tx['csv']['Buchungstext']:
+            return tx
+
+        match = None
+        if "Card Nr." in tx['csv']['Buchungstext']:
+            match = self.DEBIT_REGEX_DE.match(tx['csv']['Buchungstext'])
+        else:
+            match = self.DEBIT_REGEX_EN.match(tx['csv']['Buchungstext'])
+        if not match:
+            return tx
+        g = match.groups()
+
+        card = g[0]
+        recipient = g[1]
+
+        self._setOtherParty(tx['firefly'], recipient)
+        self._addNotes(tx['firefly'], "Card No.: {}".format(card))
+
+        return tx
+    
+    def twintTransform(self, tx):
+        if "TWINT" not in tx['csv']['Buchungstext']:
+            return tx
+
+        match = self.TWINT_REGEX.match(tx['csv']['Buchungstext'])
+        if not match:
+            return tx
+        g = match.groups()
+
+        recipient = g[0]
+
+        self._setOtherParty(tx['firefly'], recipient)
+
+        return tx
+
+    def lsvTransform(self, tx):
+        if not ("Lastschrift" in tx['csv']['Buchungstext'] or "LSV" in tx['csv']['Buchungstext']):
+            return tx
+
+
+        match = None
+        if "Lastschrift" in tx['csv']['Buchungstext']:
+            match = self.LSV_REGEX_DE.match(tx['csv']['Buchungstext'])
+        else:
+            match = self.LSV_REGEX_EN.match(tx['csv']['Buchungstext'])
+        if not match:
+            return tx
+        g = match.groups()
+
+        recipient = g[0]
+
+        self._setOtherParty(tx['firefly'], recipient)
+
+        return tx

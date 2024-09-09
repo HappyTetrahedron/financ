@@ -1,7 +1,8 @@
 from firefly import Firefly
 import parse
 import transform
-import os
+import sys
+import datetime
 
 class FFImporter:
     def __init__(self, parser, transformer, firefly, debug=False):
@@ -16,6 +17,9 @@ class FFImporter:
             transformer.setOwnAccount(parsed['iban'])
 
         tx = transformer.transform(parsed['tx'])
+
+        if not self.debug:
+            firefly.createTag(transformer.tag, datetime.datetime.now())
 
         for x in tx:
             if self.debug:
@@ -37,6 +41,8 @@ if __name__ == '__main__':
                       help="Firefly token")
     op.add_option('-b', '--bank', dest='bank', type='string',
                       help="Bank. Supported: appkb, zkb", default="appkb")
+    op.add_option('-i', '--iban', dest='iban', type='string',
+                      help="IBAN of account associated with bank statement")
     op.add_option('-d', '--debug', dest='debug', action='store_true',
                       help="Debug mode")
     (opts, args) = op.parse_args()
@@ -50,10 +56,15 @@ if __name__ == '__main__':
     transformer = None
     if opts.bank == "appkb":
         transformer = transform.AppkbTransformer(firefly, opts.debug)
+    if opts.bank == "zkb":
+        parser = parse.ZkbCsvParser()
+        transformer = transform.ZkbTransformer(firefly, opts.debug)
+        if not opts.iban:
+            sys.exit("Please provide IBAN")
+        transformer.setOwnAccount(opts.iban)
     
     if not (transformer and parser):
-        print("Invalid input")
-        os.exit(1)
+        sys.exit("Invalid input")
         # todo better errors
     
     ffi = FFImporter(parser, transformer, firefly, opts.debug)

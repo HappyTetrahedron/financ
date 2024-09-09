@@ -1,4 +1,5 @@
 from pycamt import parser as camtparser
+import csv
 
 # behold, monkey patching:
 def my_extract_transaction_details(self, tx_detail):
@@ -84,3 +85,15 @@ class CamtParser(BaseParser):
                 'iban': iban,
                 'tx': tx,
             }
+
+class ZkbCsvParser(BaseParser):
+    @staticmethod
+    def parse(inFile):
+        with open(inFile, newline='') as csvfile:
+            lines = [ l.strip('\n\r\ufeff') for l in  csvfile.readlines() ]
+            reader = csv.DictReader(lines, delimiter=';', quotechar='"')
+            tx = [i for i in reader]
+            return {
+                'tx': tx,
+            }
+
