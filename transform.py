@@ -11,11 +11,17 @@ class BaseTransformer:
         self.transforms = []
         self.tag = "import-{}-{}".format(datetime.date.today().isoformat(), str(uuid.uuid4().fields[-1])[:5])
     
-    def transform(self, tx):
-        for t in self.transforms:
-            tx = map(t, tx)
+    def transform(self, transactions):
+        transformed_transactions = []
+        for tx in transactions:
+            for t in self.transforms:
+                tx = t(tx)
+                if not tx:
+                    break
+            if tx:
+                transformed_transactions.append(tx)
         
-        return tx
+        return transformed_transactions
     
     def setOwnAccount(self, identifier, iban=True):
         if iban:
@@ -67,7 +73,6 @@ class AppkbTransformer(BaseTransformer):
 
         newData = {
             'camt': camt,
-            'drop': False,
         }
 
         tx = ff.TransactionSplitStore(
@@ -170,7 +175,7 @@ class ZkbTransformer(BaseTransformer):
         "Debit CHF": "Belastung CHF",
         "Credit CHF": "Gutschrift CHF",
         "Value date": "Valuta",
-        "Balange CHF": "Saldo CHF",
+        "Balance CHF": "Saldo CHF",
         "ZKB reference": "ZKB-Referenz",
         "Payment purpose": "Zahlungszweck",
     }
@@ -204,7 +209,6 @@ class ZkbTransformer(BaseTransformer):
 
         newData = {
             'csv': csv,
-            'drop': False,
             'dir': 'credit' if csv['Gutschrift CHF'] else 'debit',
         }
 
@@ -314,7 +318,6 @@ class VisecaTransformer(BaseTransformer):
 
         newData = {
             'csv': csv,
-            'drop': False,
             'dir': 'debit' if float(csv['Amount']) >= 0 else 'credit',
         }
 
@@ -355,3 +358,44 @@ class VisecaTransformer(BaseTransformer):
             return tx
         self._addNotes(tx['firefly'], "Category: {}".format(tx['csv']['PFMCategoryName']))
         return tx
+
+
+class UbsTransformer(BaseTransformer):
+    def __init__(self, firefly, debug=False):
+        super().__init__(firefly, debug)
+        self.transforms = [
+            self.baseTransform,
+            self.unpackTransform,
+            self.tagTransform,
+        ]
+
+    def baseTransform(self, csv):
+        if self.debug:
+            import pprint
+            pprint.pprint(csv)
+
+        if not csv['Abschlussdatum']:
+            return None
+
+        newData = {
+            'csv': csv,
+            'dir': 'credit' if csv['Gutschrift'] else 'debit',
+        }
+
+        tx = ff.TransactionSplitStore(
+            amount=csv['Belastung'] if newData['dir'] == 'debit' else csv['Gutschrift'],
+            description=csv['Beschreibung1'],
+            date=datetime.date.fromisoformat(csv['Abschlussdatum']),
+            type=ff.TransactionTypeProperty.DEPOSIT if newData['dir'] == 'credit' else ff.TransactionTypeProperty.WITHDRAWAL,
+            external_id=csv['Transaktions-Nr.'],
+            destination_id=None,
+            source_id=None,
+        )
+        if newData['dir'] == 'credit':
+            tx.destination_id = self.account.id
+            tx.source_name = csv['Beschreibung1']
+        else:
+            tx.source_id = self.account.id
+            tx.destination_name = csv['Beschreibung1']
+        newData['firefly'] = tx
+        return newData

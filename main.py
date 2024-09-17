@@ -36,11 +36,11 @@ if __name__ == '__main__':
     op.add_option('-f', '--file', dest='file', type='string',
                       help="Path of camt file")
     op.add_option('-H', '--host', dest='host', type='string',
-                      help="Firefly host")
+                      help="Firefly host", default="https://mani.tetrahedron.ch/api")
     op.add_option('-t', '--token', dest='token', type='string',
                       help="Firefly token")
     op.add_option('-b', '--bank', dest='bank', type='string',
-                      help="Bank. Supported: appkb, zkb, viseca", default="appkb")
+                      help="Bank. Supported: appkb, zkb, viseca, ubs", default="appkb")
     op.add_option('-i', '--iban', dest='iban', type='string',
                       help="IBAN of account associated with bank statement")
     op.add_option('-a', '--account', dest='account', type='string',
@@ -70,6 +70,9 @@ if __name__ == '__main__':
         if not opts.account:
             sys.exit("Please provide account name")
         transformer.setOwnAccount(opts.account, iban=False)
+    if opts.bank == "ubs":
+        parser = parse.UbsCsvParser()
+        transformer = transform.UbsTransformer(firefly, opts.debug)
     
     if not (transformer and parser):
         sys.exit("Invalid input")

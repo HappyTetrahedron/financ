@@ -108,3 +108,22 @@ class VisecaCsvParser(BaseParser):
                 'tx': tx,
             }
 
+class UbsCsvParser(BaseParser):
+    @staticmethod
+    def parse(inFile):
+        iban = None
+        with open(inFile, newline='') as csvfile:
+            lines = [l.strip('\n\r\ufeff') for l in csvfile.readlines()]
+            while True:
+                line = lines.pop(0)
+                if not line:
+                    break
+                cells = line.split(";")
+                if 'IBAN' in cells[0]:
+                    iban = cells[1].replace(' ', '')
+
+            reader = csv.DictReader(lines, delimiter=';', quotechar='"')
+            return {
+                'tx': [i for i in reader],
+                'iban': iban,
+            }
