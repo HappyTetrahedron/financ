@@ -282,8 +282,6 @@ class ZkbTransformer(BaseTransformer):
         if not ("Lastschrift" in tx['csv']['Buchungstext'] or "LSV" in tx['csv']['Buchungstext']):
             return tx
 
-
-        match = None
         if "Lastschrift" in tx['csv']['Buchungstext']:
             match = self.LSV_REGEX_DE.match(tx['csv']['Buchungstext'])
         else:
@@ -361,10 +359,12 @@ class VisecaTransformer(BaseTransformer):
 
 
 class UbsTransformer(BaseTransformer):
+    TWINT_REGEX = re.compile(r"Zahlungsgrund: ([^;]+)(?:; )?TWINT-Acc")
     def __init__(self, firefly, debug=False):
         super().__init__(firefly, debug)
         self.transforms = [
             self.baseTransform,
+            self.twintTransform,
             self.unpackTransform,
             self.tagTransform,
         ]
@@ -382,7 +382,7 @@ class UbsTransformer(BaseTransformer):
             'dir': 'credit' if csv['Gutschrift'] else 'debit',
         }
 
-        tx = ff.TransactionSplitStore(
+        fireflyTx = ff.TransactionSplitStore(
             amount=csv['Belastung'] if newData['dir'] == 'debit' else csv['Gutschrift'],
             description=csv['Beschreibung1'],
             date=datetime.date.fromisoformat(csv['Abschlussdatum']),
@@ -392,10 +392,30 @@ class UbsTransformer(BaseTransformer):
             source_id=None,
         )
         if newData['dir'] == 'credit':
-            tx.destination_id = self.account.id
-            tx.source_name = csv['Beschreibung1']
+            fireflyTx.destination_id = self.account.id
+            fireflyTx.source_name = csv['Beschreibung1']
         else:
-            tx.source_id = self.account.id
-            tx.destination_name = csv['Beschreibung1']
-        newData['firefly'] = tx
+            fireflyTx.source_id = self.account.id
+            fireflyTx.destination_name = csv['Beschreibung1']
+        newData['firefly'] = fireflyTx
         return newData
+
+    def twintTransform(self, tx):
+        match = self.TWINT_REGEX.match(tx['csv']['Beschreibung3'])
+        if not match:
+            return tx
+        g = match.groups()
+
+        recipient = g[0]
+        if recipient.startswith("+"):
+            self._addNotes(tx['firefly'], "TWINT Phone Number: {}".format(recipient))
+            if tx['csv']['Beschreibung2'] == 'Gutschrift UBS TWINT':
+                recipient = tx['csv']['Beschreibung1'].upper()
+            else:
+                recipient = tx['csv']['Beschreibung1'].replace('; Belastung UBS TWINT', '')
+        else:
+            recipient = tx['csv']['Beschreibung1'].replace('; Zahlung UBS TWINT', '').upper()
+
+        tx['firefly'].description = f"TWINT: {recipient}"
+        self._setOtherParty(tx['firefly'], recipient)
+        return tx
