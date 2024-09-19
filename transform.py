@@ -3,7 +3,7 @@ from firefly_iii_client import TransactionTypeProperty
 import firefly_iii_client as ff
 import datetime
 import re
-import uuid
+import random
 
 from utils import normalizeIban
 
@@ -11,11 +11,14 @@ DUMMY_ID = "-1"
 
 
 class BaseTransformer:
+
+    TAG_SUFFIX = ""
+
     def __init__(self, firefly, debug=False):
         self.firefly = firefly
         self.debug = debug 
         self.transforms = []
-        self.tag = "import-{}-{}".format(datetime.date.today().isoformat(), str(uuid.uuid4().fields[-1])[:5])
+        self.tag = f"import-{datetime.date.today().isoformat()}-{self.TAG_SUFFIX}-{random.randint(10000, 99999)}"
     
     def transform(self, transactions):
         transformed_transactions = []
@@ -58,6 +61,7 @@ class BaseTransformer:
             fftx.notes = note
 
 class AppkbTransformer(BaseTransformer):
+    TAG_SUFFIX = "appkb"
 
     DEBIT_REGEX = re.compile(r"Debitkarten-\S+ (\d+.\d+.\d+ \d+:\d+) (.+) Kartennummer: ([\d\*]+)")
     TWINT_REGEX = re.compile(r"TWINT-\S+ (.+) (\d{12,20})")
@@ -177,6 +181,7 @@ class AppkbTransformer(BaseTransformer):
         return tx
 
 class ZkbTransformer(BaseTransformer):
+    TAG_SUFFIX = "zkb"
 
     DEBIT_REGEX_DE = re.compile(r"\S+ ZKB Visa Debit Card Nr. (\S{2,6} \d{2,6}), (.+)")
     DEBIT_REGEX_EN = re.compile(r"\S+ ZKB Visa Debit card no. (\S{2,6} \d{2,6}), (.+)")
@@ -310,6 +315,7 @@ class ZkbTransformer(BaseTransformer):
         return tx
 
 class VisecaTransformer(BaseTransformer):
+    TAG_SUFFIX = "viseca"
 
     def __init__(self, firefly, debug=False):
         super().__init__(firefly, debug)
@@ -372,6 +378,8 @@ class VisecaTransformer(BaseTransformer):
 
 
 class UbsTransformer(BaseTransformer):
+    TAG_SUFFIX = "ubs"
+
     TWINT_REGEX = re.compile(r"Zahlungsgrund: ([^;]+)(?:; )?TWINT-Acc")
     ACCOUNT_REGEX = re.compile(r"Konto-Nr\. IBAN: ([^;]+)")
 
@@ -406,8 +414,8 @@ class UbsTransformer(BaseTransformer):
         }
 
         fireflyTx = ff.TransactionSplitStore(
-            amount=amount,
-            description=csv['Beschreibung1'],
+            amount=amount.replace('-', ''),
+            description=csv['Beschreibung1'].split(';')[0],
             date=datetime.date.fromisoformat(csv['Abschlussdatum']),
             type=ff.TransactionTypeProperty.DEPOSIT if newData['dir'] == 'credit' else ff.TransactionTypeProperty.WITHDRAWAL,
             external_id=csv['Transaktions-Nr.'],
