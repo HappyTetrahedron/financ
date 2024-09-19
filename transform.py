@@ -1,12 +1,13 @@
 from firefly_iii_client import TransactionTypeProperty
 
-from firefly import Firefly
 import firefly_iii_client as ff
 import datetime
 import re
 import uuid
 
 from utils import normalizeIban
+
+DUMMY_ID = "-1"
 
 
 class BaseTransformer:
@@ -106,30 +107,38 @@ class AppkbTransformer(BaseTransformer):
         fftx = tx['firefly']
         if camt['CreditDebitIndicator'] == 'CRDT' and camt['DebtorIBAN']:
             source = self.firefly.getRevenueAccountByIban(camt['DebtorIBAN'])
-            if not source:
+            if source:
+                source_id = source.id
+            else:
                 source = self.firefly.getAssetAccountByIban(camt['DebtorIBAN'])
                 if source:
                     fftx.type = ff.TransactionTypeProperty.TRANSFER
+                    source_id = source.id
                 else:
                     if self.debug:
-                        source = ff.AccountRead(id=-1)
+                        source_id = DUMMY_ID
                     else:
                         source = self.firefly.createRevenueAccount(camt['DebtorIBAN'], camt['DebtorName'])
+                        source_id = source.id
             
-            fftx.source_id = source.id
+            fftx.source_id = source_id
         elif camt['CreditorIBAN']:
             dest = self.firefly.getExpenseAccountByIban(camt['CreditorIBAN'])
-            if not dest:
+            if dest:
+                dest_id = dest.id
+            else:
                 dest = self.firefly.getAssetAccountByIban(camt['CreditorIBAN'])
                 if dest:
                     fftx.type = ff.TransactionTypeProperty.TRANSFER
+                    dest_id = dest.id
                 else:
                     if self.debug:
-                        dest = ff.AccountRead(id=-1)
+                        dest_id = DUMMY_ID
                     else:
                         dest = self.firefly.createExpenseAccount(camt['CreditorIBAN'], camt['CreditorName'])
+                        dest_id = dest.id
             
-            fftx.destination_id = dest.id
+            fftx.destination_id = dest_id
         tx['firefly'] = fftx
         return tx
     
@@ -454,7 +463,7 @@ class UbsTransformer(BaseTransformer):
                     source_id = source.id
                 else:
                     if self.debug:
-                        source_id = "-1"
+                        source_id = DUMMY_ID
                     else:
                         source = self.firefly.createRevenueAccount(iban, tx['csv']['Beschreibung1'])
                         source_id = source.id
@@ -470,7 +479,7 @@ class UbsTransformer(BaseTransformer):
                     dest_id = dest.id
                 else:
                     if self.debug:
-                        dest_id = "-1"
+                        dest_id = DUMMY_ID
                     else:
                         dest = self.firefly.createExpenseAccount(iban, tx['csv']['Beschreibung1'])
                         dest_id = dest.id
