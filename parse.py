@@ -1,6 +1,9 @@
 from pycamt import parser as camtparser
 import csv
 
+from utils import normalizeIban
+
+
 # behold, monkey patching:
 def my_extract_transaction_details(self, tx_detail):
     """
@@ -120,7 +123,7 @@ class UbsCsvParser(BaseParser):
                     break
                 cells = line.split(";")
                 if 'IBAN' in cells[0]:
-                    iban = cells[1].replace(' ', '')
+                    iban = normalizeIban(cells[1])
 
             reader = csv.DictReader(lines, delimiter=';', quotechar='"')
             return {
