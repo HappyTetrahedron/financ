@@ -443,29 +443,37 @@ class UbsTransformer(BaseTransformer):
 
         fftx = tx['firefly']
 
-        if fftx.type == TransactionTypeProperty.WITHDRAWAL:
+        if fftx.type == TransactionTypeProperty.DEPOSIT:
             source = self.firefly.getRevenueAccountByIban(iban)
-            if not source:
+            if source:
+                source_id = source.id
+            else:
                 source = self.firefly.getAssetAccountByIban(iban)
                 if source:
                     fftx.type = ff.TransactionTypeProperty.TRANSFER
+                    source_id = source.id
                 else:
                     if self.debug:
-                        source = ff.AccountRead(id=-1)
+                        source_id = "-1"
                     else:
                         source = self.firefly.createRevenueAccount(iban, tx['csv']['Beschreibung1'])
-            fftx.source_id = source.id
+                        source_id = source.id
+            fftx.source_id = source_id
         else:
             dest = self.firefly.getExpenseAccountByIban(iban)
-            if not dest:
+            if dest:
+                dest_id = dest.id
+            else:
                 dest = self.firefly.getAssetAccountByIban(iban)
                 if dest:
                     fftx.type = ff.TransactionTypeProperty.TRANSFER
+                    dest_id = dest.id
                 else:
                     if self.debug:
-                        dest = ff.AccountRead(id=-1)
+                        dest_id = "-1"
                     else:
                         dest = self.firefly.createExpenseAccount(iban, tx['csv']['Beschreibung1'])
+                        dest_id = dest.id
 
-            fftx.destination_id = dest.id
+            fftx.destination_id = dest_id
         return tx
