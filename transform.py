@@ -1,8 +1,13 @@
+from firefly_iii_client import TransactionTypeProperty
+
 from firefly import Firefly
 import firefly_iii_client as ff
 import datetime
 import re
 import uuid
+
+from utils import normalizeIban
+
 
 class BaseTransformer:
     def __init__(self, firefly, debug=False):
@@ -120,7 +125,7 @@ class AppkbTransformer(BaseTransformer):
                     fftx.type = ff.TransactionTypeProperty.TRANSFER
                 else:
                     if self.debug:
-                        source = ff.AccountRead(id=-1)
+                        dest = ff.AccountRead(id=-1)
                     else:
                         dest = self.firefly.createExpenseAccount(camt['CreditorIBAN'], camt['CreditorName'])
             
@@ -246,7 +251,6 @@ class ZkbTransformer(BaseTransformer):
         if "Visa Debit" not in tx['csv']['Buchungstext']:
             return tx
 
-        match = None
         if "Card Nr." in tx['csv']['Buchungstext']:
             match = self.DEBIT_REGEX_DE.match(tx['csv']['Buchungstext'])
         else:
@@ -360,11 +364,16 @@ class VisecaTransformer(BaseTransformer):
 
 class UbsTransformer(BaseTransformer):
     TWINT_REGEX = re.compile(r"Zahlungsgrund: ([^;]+)(?:; )?TWINT-Acc")
+    ACCOUNT_REGEX = re.compile(r"Konto-Nr\. IBAN: ([^;]+)")
+
+    _prevDate = None
+
     def __init__(self, firefly, debug=False):
         super().__init__(firefly, debug)
         self.transforms = [
             self.baseTransform,
             self.twintTransform,
+            self.ibanTransform,
             self.unpackTransform,
             self.tagTransform,
         ]
@@ -374,16 +383,21 @@ class UbsTransformer(BaseTransformer):
             import pprint
             pprint.pprint(csv)
 
-        if not csv['Abschlussdatum']:
+        if csv['Beschreibung1'] == 'Diverse Daueraufträge':
+            self._prevDate = csv['Abschlussdatum']
             return None
+        if not csv['Abschlussdatum']:
+            csv['Abschlussdatum'] = self._prevDate
+
+        amount = csv['Belastung'] or csv['Gutschrift'] or csv['Einzelbetrag']
 
         newData = {
             'csv': csv,
-            'dir': 'credit' if csv['Gutschrift'] else 'debit',
+            'dir': 'debit' if amount.startswith('-') else 'credit',
         }
 
         fireflyTx = ff.TransactionSplitStore(
-            amount=csv['Belastung'] if newData['dir'] == 'debit' else csv['Gutschrift'],
+            amount=amount,
             description=csv['Beschreibung1'],
             date=datetime.date.fromisoformat(csv['Abschlussdatum']),
             type=ff.TransactionTypeProperty.DEPOSIT if newData['dir'] == 'credit' else ff.TransactionTypeProperty.WITHDRAWAL,
@@ -418,4 +432,40 @@ class UbsTransformer(BaseTransformer):
 
         tx['firefly'].description = f"TWINT: {recipient}"
         self._setOtherParty(tx['firefly'], recipient)
+        return tx
+
+    def ibanTransform(self, tx):
+        match = self.ACCOUNT_REGEX.match(tx['csv']['Beschreibung3'])
+        if not match:
+            return tx
+        g = match.groups()
+        iban = normalizeIban(g[0])
+
+        fftx = tx['firefly']
+
+        if fftx.type == TransactionTypeProperty.WITHDRAWAL:
+            source = self.firefly.getRevenueAccountByIban(iban)
+            if not source:
+                source = self.firefly.getAssetAccountByIban(iban)
+                if source:
+                    fftx.type = ff.TransactionTypeProperty.TRANSFER
+                else:
+                    if self.debug:
+                        source = ff.AccountRead(id=-1)
+                    else:
+                        source = self.firefly.createRevenueAccount(iban, tx['csv']['Beschreibung1'])
+            fftx.source_id = source.id
+        else:
+            dest = self.firefly.getExpenseAccountByIban(iban)
+            if not dest:
+                dest = self.firefly.getAssetAccountByIban(iban)
+                if dest:
+                    fftx.type = ff.TransactionTypeProperty.TRANSFER
+                else:
+                    if self.debug:
+                        dest = ff.AccountRead(id=-1)
+                    else:
+                        dest = self.firefly.createExpenseAccount(iban, tx['csv']['Beschreibung1'])
+
+            fftx.destination_id = dest.id
         return tx
