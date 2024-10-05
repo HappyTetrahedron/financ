@@ -250,7 +250,7 @@ class ZkbTransformer(BaseTransformer):
         return newData
     
     def feeTransform(self, tx):
-        if "Gebühr ZKB" not in tx['csv']['Buchungstext']:
+        if not ("Gebühr ZKB" in tx['csv']['Buchungstext'] or "Fee ZKB" in tx['csv']['Buchungstext']):
             return tx
         self._setOtherParty(tx['firefly'], "ZKB Zürcher Kantonalbank")
         return tx
