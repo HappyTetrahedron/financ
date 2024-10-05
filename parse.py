@@ -133,3 +133,13 @@ class UbsCsvParser(BaseParser):
                 'tx': [i for i in reader],
                 'iban': iban,
             }
+
+class UbsCardCsvParser(BaseParser):
+    @staticmethod
+    def parse(inFile):
+        with open(inFile, newline='', encoding='iso-8859-1') as csvfile:
+            lines = [l.strip('\n\r\ufeff') for l in csvfile.readlines() if l and not l.startswith('sep=;') and not l.startswith(';;')]
+            reader = csv.DictReader(lines, delimiter=';', quotechar='"')
+            return {
+                'tx': [i for i in reader],
+            }

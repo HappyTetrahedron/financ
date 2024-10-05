@@ -2,6 +2,7 @@ from firefly_iii_client import TransactionTypeProperty
 
 import firefly_iii_client as ff
 import datetime
+import hashlib
 import re
 import random
 
@@ -493,4 +494,70 @@ class UbsTransformer(BaseTransformer):
                         dest_id = dest.id
 
             fftx.destination_id = dest_id
+        return tx
+
+class UbsCardTransformer(BaseTransformer):
+    TAG_SUFFIX = "ubscard"
+
+    date_index = 0
+    prev_date = None
+
+    def __init__(self, firefly, debug=False):
+        super().__init__(firefly, debug)
+        self.transforms = [
+            self.baseTransform,
+            self.industryTransform,
+            self.unpackTransform,
+            self.tagTransform,
+        ]
+
+    def baseTransform(self, csv):
+        if self.debug:
+            import pprint
+            pprint.pprint(csv)
+
+        amount = csv['Belastung'] or csv['Gutschrift']
+        if not amount:
+            return None
+
+        if self.prev_date != csv['Buchung']:
+            self.prev_date = csv['Buchung']
+            self.date_index = 0
+        else:
+            self.date_index = self.date_index + 1
+
+        newData = {
+            'csv': csv,
+            'dir': 'debit' if csv['Belastung'] else 'credit',
+        }
+
+        description = csv['Buchungstext']
+        description = description.split('  ')[0]
+
+        fireflyTx = ff.TransactionSplitStore(
+            amount=amount,
+            description=description,
+            date=datetime.datetime.strptime(csv['Buchung'], "%d.%m.%Y"),
+            type=ff.TransactionTypeProperty.DEPOSIT if newData['dir'] == 'credit' else ff.TransactionTypeProperty.WITHDRAWAL,
+            external_id=self._generate_external_id(csv),
+            destination_id=None,
+            source_id=None,
+        )
+        if newData['dir'] == 'credit':
+            fireflyTx.destination_id = self.account.id
+            fireflyTx.source_name = description
+        else:
+            fireflyTx.source_id = self.account.id
+            fireflyTx.destination_name = description
+        newData['firefly'] = fireflyTx
+        return newData
+
+    def _generate_external_id(self, csv):
+        message = csv['Buchung'] + csv['Buchungstext'] + str(self.date_index)
+        return hashlib.sha1(message.encode()).hexdigest()
+
+    def industryTransform(self, tx):
+        industry = tx['csv']['Branche']
+        if industry:
+            self._addNotes(tx['firefly'], "Industry: {}".format(industry))
         return tx
