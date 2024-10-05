@@ -22,19 +22,14 @@ class FFImporter:
             firefly.createTag(transformer.tag, datetime.date.today())
 
         for x in tx:
-            if self.debug:
-                import pprint
-                pprint.pprint(x)
-            print("Storing transaction '{}'".format(x.description))
-            if not self.debug:
-                self.firefly.sendTx(x)
+            self.firefly.sendTx(x, self.debug)
 
 
 if __name__ == '__main__':
     from optparse import OptionParser
     op = OptionParser()
     op.add_option('-f', '--file', dest='file', type='string',
-                      help="Path of camt file")
+                      help="Path of bank statement file")
     op.add_option('-H', '--host', dest='host', type='string',
                       help="Firefly host", default="https://mani.tetrahedron.ch/api")
     op.add_option('-t', '--token', dest='token', type='string',

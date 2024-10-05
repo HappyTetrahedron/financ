@@ -16,14 +16,25 @@ class Firefly:
 
         ff.TagsApi(self.client).store_tag(fftag)
     
-    def sendTx(self, txSplit):
+    def sendTx(self, txSplit, debug=False):
+        if txSplit.external_id:
+            existing = self.getTransactionByExternalId(txSplit.external_id)
+            if existing:
+                print("Transaction {} already exists - skipping.".format(txSplit.description))
+                return
         tx = ff.TransactionStore(
             apply_rules=True,
             fire_webhooks=True,
             error_if_duplicate_hash=True,
             transactions=[txSplit],
         )
+        if debug:
+            print("Debug active - not storing transaction:")
+            import pprint
+            pprint.pprint(txSplit)
+            return
         try:
+            print("Storing transaction {}.".format(txSplit.description))
             ff.TransactionsApi(self.client).store_transaction(tx)
         except ff.exceptions.ApiException as e:
             if "Duplicate of transaction" in e.body:
@@ -59,6 +70,14 @@ class Firefly:
             raise e
 
     
+    def getTransactionByExternalId(self, external_id):
+        resp = ff.SearchApi(self.client).search_transactions(
+            query="external_id:{}".format(external_id),
+        )
+        if len(resp.data) > 0:
+            return resp.data[0]
+        return None
+
     def getRevenueAccountByIban(self, iban):
         return self.getAccountByIban(iban, ff.AccountTypeFilter.REVENUE)
 
