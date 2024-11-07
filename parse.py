@@ -38,11 +38,14 @@ def my_extract_transaction_details(self, tx_detail):
         ),
         # The top level amount field contains the total amount including bank fees, the TxDetail amount does not;
         # by not overriding the amount here we can keep the total amount which is more useful.
-        # "Amount": (
-        #     tx_detail.find(".//Amt", self.namespaces).text
-        #     if tx_detail.find(".//Amt", self.namespaces) is not None
-        #     else None
-        # ),
+        # UPDATE actually, there are batch transactions, where the overall amount is the sum of the amounts of multiple transactions,
+        # so using that unconditionally is also not a good idea. We probably need special handling for foreign currencies here.
+        # TODO do that eventually
+        "Amount": (
+            tx_detail.find(".//Amt", self.namespaces).text
+            if tx_detail.find(".//Amt", self.namespaces) is not None
+            else None
+        ),
         "CreditorName": (
             tx_detail.find(".//RltdPties//Cdtr//Nm", self.namespaces).text
             if tx_detail.find(".//RltdPties//Cdtr//Nm", self.namespaces) is not None
