@@ -67,10 +67,12 @@ class AppkbTransformer(BaseTransformer):
 
     DEBIT_REGEX = re.compile(r"Debitkarten-\S+ (\d+.\d+.\d+ \d+:\d+) (.+) Kartennummer: ([\d\*]+)")
     TWINT_REGEX = re.compile(r"TWINT-\S+ (.+) (\d{12,20})")
+    EBILL_REGEX = re.compile(r"(.+) \(([A-Z0-9]{12,34})\)")
     def __init__(self, firefly, debug=False):
         super().__init__(firefly, debug)
         self.transforms = [
             self.baseTransform,
+            self.ebillTransform,
             self.ibanTransform,
             self.debitCardTransform,
             self.twintTransform,
@@ -186,6 +188,23 @@ class AppkbTransformer(BaseTransformer):
 
         self._setOtherParty(tx['firefly'], recipient)
         self._addNotes(tx['firefly'], "Twint Account ID: {}".format(number))
+
+        return tx
+
+    def ebillTransform(self, tx):
+        if "eBill" not in tx['camt']['AdditionalEntryInformation']:
+            return tx
+
+        match = self.EBILL_REGEX.match(tx['camt']['CreditorName'])
+        if not match:
+            return tx
+        g = match.groups()
+
+        name = g[0]
+        iban = g[1]
+
+        tx['camt']['CreditorName'] = name
+        tx['camt']['CreditorIBAN'] = iban
 
         return tx
 
