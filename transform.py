@@ -63,6 +63,7 @@ class BaseTransformer:
 
 class AppkbTransformer(BaseTransformer):
     TAG_SUFFIX = "appkb"
+    EMPLOYER_ACC_ID = "27"
 
     DEBIT_REGEX = re.compile(r"Debitkarten-\S+ (\d+.\d+.\d+ \d+:\d+) (.+) Kartennummer: ([\d\*]+)")
     TWINT_REGEX = re.compile(r"TWINT-\S+ (.+) (\d{12,20})")
@@ -86,22 +87,29 @@ class AppkbTransformer(BaseTransformer):
             'camt': camt,
         }
 
+        ex_id = camt.get('AccountServicerReference', "{}.{}.{}".format(camt['BookingDate'], camt['Amount'], camt['TransactionFamilyCode']))
         tx = ff.TransactionSplitStore(
             amount=camt['Amount'],
             description=camt['AdditionalEntryInformation'],
             date=datetime.date.fromisoformat(camt['BookingDate']),
             type=ff.TransactionTypeProperty.DEPOSIT if camt['CreditDebitIndicator'] == 'CRDT' else ff.TransactionTypeProperty.WITHDRAWAL,
-            external_id=camt['AccountServicerReference'],
+            external_id=ex_id,
             destination_id=None,
             source_id=None,
         )
         if camt['CreditDebitIndicator'] == 'CRDT':
             tx.destination_id = self.account.id
-            tx.source_name = camt['DebtorName']
+            if 'DebtorName' not in camt:
+                # broken camt entry, likely salary
+                if camt['TransactionSubFamilyCode'] == 'SALA':
+                    tx.source_id = self.EMPLOYER_ACC_ID
+                tx.source_name = "UNKNOWN"
+            else:
+                tx.source_name = camt['DebtorName']
         else:
             tx.source_id = self.account.id
             tx.destination_name = camt['CreditorName']
-        if camt['RemittanceInformation']:
+        if camt.get('RemittanceInformation', False):
             tx.notes = camt['RemittanceInformation']
             tx.description = "{} ({})".format(camt['AdditionalEntryInformation'], camt['RemittanceInformation'])
         newData['firefly'] = tx
@@ -110,7 +118,7 @@ class AppkbTransformer(BaseTransformer):
     def ibanTransform(self, tx):
         camt = tx['camt']
         fftx = tx['firefly']
-        if camt['CreditDebitIndicator'] == 'CRDT' and camt['DebtorIBAN']:
+        if camt['CreditDebitIndicator'] == 'CRDT' and camt.get('DebtorIBAN', False):
             source = self.firefly.getRevenueAccountByIban(camt['DebtorIBAN'])
             if source:
                 source_id = source.id
@@ -127,7 +135,7 @@ class AppkbTransformer(BaseTransformer):
                         source_id = source.id
             
             fftx.source_id = source_id
-        elif camt['CreditorIBAN']:
+        elif camt.get('CreditorIBAN', False):
             dest = self.firefly.getExpenseAccountByIban(camt['CreditorIBAN'])
             if dest:
                 dest_id = dest.id

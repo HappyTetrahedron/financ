@@ -73,7 +73,59 @@ def my_extract_transaction_details(self, tx_detail):
         ),
     }
 
+
+def my_extract_transaction(self, entry):
+    """
+    Extracts data from a single transaction entry.
+
+    Parameters
+    ----------
+    entry : Element
+        The XML element representing a transaction entry.
+
+    Returns
+    -------
+    dict
+        A dictionary containing extracted data for the transaction.
+    """
+
+    common_data = self._extract_common_entry_data(entry)
+    entry_details = entry.findall(".//NtryDtls", self.namespaces)
+
+    transactions = []
+
+    # Handle 1-0 relationship
+    if not entry_details:
+        transactions.append(common_data)
+    else:
+        for ntry_detail in entry_details:
+            tx_details = ntry_detail.findall(".//TxDtls", self.namespaces)
+
+            # Handle 1-0 relationship - very bold to assume this data format would be sane
+            if len(tx_details) == 0:
+                transactions.append(common_data)
+            # Handle 1-1 relationship
+            if len(tx_details) == 1:
+                transactions.append(
+                    {
+                        **common_data,
+                        **self._extract_transaction_details(tx_details[0]),
+                    }
+                )
+
+            # Handle 1-n relationship
+            else:
+                for tx_detail in tx_details:
+                    transactions.append(
+                        {
+                            **common_data,
+                            **self._extract_transaction_details(tx_detail),
+                        }
+                    )
+    return transactions
+
 camtparser.Camt053Parser._extract_transaction_details = my_extract_transaction_details
+camtparser.Camt053Parser._extract_transaction = my_extract_transaction
 
 class BaseParser:
     @staticmethod
