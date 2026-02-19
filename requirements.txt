@@ -1,3 +1,3 @@
 pycamt
 requests
-Firefly-III-API-Client
+Firefly-III-API-Client==6.1.24.0
