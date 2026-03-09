@@ -394,6 +394,9 @@ class VisecaTransformer(BaseTransformer):
     def depositTransform(self, tx):
         if tx['dir'] == 'debit':
             return tx
+        if 'refund' in tx['csv']['PFMCategoryID']:
+            tx['firefly'].description = "Credit Card Refund"
+            return tx
         tx['firefly'].description = "Credit Card Pre-Payment"
         self._setOtherParty(tx['firefly'], "Viseca Credit Card Deposits")
         return tx
