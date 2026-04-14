@@ -361,6 +361,9 @@ class VisecaTransformer(BaseTransformer):
             import pprint
             pprint.pprint(csv)
 
+        if csv.get("TransactionID", "").startswith("AUTH"):
+            return None
+
         newData = {
             'csv': csv,
             'dir': 'debit' if float(csv['Amount']) >= 0 else 'credit',
