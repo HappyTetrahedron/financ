@@ -72,7 +72,7 @@ class Firefly:
     
     def getTransactionByExternalId(self, external_id):
         resp = ff.SearchApi(self.client).search_transactions(
-            query="external_id:{}".format(external_id),
+            query='external_id_is:"{}"'.format(external_id),
         )
         if len(resp.data) > 0:
             return resp.data[0]
@@ -96,7 +96,7 @@ class Firefly:
     def getAccount(self, identifier, accType, searchField):
         resp = ff.SearchApi(self.client).search_accounts(
             query=identifier,
-            field=searchField,
+            var_field=searchField,
             type=accType,
         )
         if len(resp.data) > 0:
