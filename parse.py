@@ -74,7 +74,7 @@ def my_extract_transaction_details(self, tx_detail):
     }
 
 
-def my_extract_transaction(self, entry):
+def my_extract_transaction(self, entry, statement):
     """
     Extracts data from a single transaction entry.
 
@@ -89,7 +89,7 @@ def my_extract_transaction(self, entry):
         A dictionary containing extracted data for the transaction.
     """
 
-    common_data = self._extract_common_entry_data(entry)
+    common_data = self._extract_common_entry_data(entry, statement)
     entry_details = entry.findall(".//NtryDtls", self.namespaces)
 
     transactions = []
@@ -135,9 +135,9 @@ class BaseParser:
 class CamtParser(BaseParser):
     @staticmethod
     def parse(inFile):
-        with open(inFile) as camtfile:
+        with open(inFile, "rb") as camtfile:
             parser = camtparser.Camt053Parser(camtfile.read())
-            iban = parser.get_statement_info()['IBAN']
+            iban = parser.get_statement_info()[0]['IBAN']
             tx = parser.get_transactions()
             return {
                 'iban': iban,
